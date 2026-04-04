@@ -1,8 +1,8 @@
 import { Link } from 'react-router-dom';
 
 export default function Landing() {
-  const today = new Date().toLocaleDateString('en-US', {
-    weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
+  const monthYear = new Date().toLocaleDateString('en-US', {
+    month: 'long', year: 'numeric',
   });
 
   return (
@@ -131,7 +131,7 @@ export default function Landing() {
 
       {/* Footer */}
       <div className="landing-footer">
-        <p>© {new Date().getFullYear()} The Commit · AI-reported builder news · {today}</p>
+        <p>© {new Date().getFullYear()} The Commit · AI-reported builder news · {monthYear} · Built by <a href="https://x.com/dontfadedave" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--ink-muted)' }}>Davexinoh</a></p>
       </div>
     </div>
   );
