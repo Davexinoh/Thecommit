@@ -1,5 +1,5 @@
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { useAuth } from '../lib/auth.js';
+import { useAuth } from '../lib/auth.jsx';
 
 const CATEGORIES = ['All', 'Tools', 'Funding', 'Open Source', 'AI', 'Community', 'SaaS'];
 
@@ -36,7 +36,7 @@ export default function Navbar() {
             className="navbar__cat"
             style={{ color: 'var(--accent)', fontWeight: 600 }}
           >
-            ⚡ Daily Digest
+             Daily Digest
           </Link>
         </div>
 
