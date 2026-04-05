@@ -1,12 +1,76 @@
-import { useState, useEffect } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { useSearchParams, Link } from 'react-router-dom';
 import { api } from '../lib/api.js';
-import ArticleCard from '../components/ArticleCard.jsx';
-import DigestPanel from '../components/DigestPanel.jsx';
 
-const today = new Date().toLocaleDateString('en-US', {
-  weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
-});
+const BG_MAP = {
+  AI: 'tiktok-card__bg--ai',
+  Tools: 'tiktok-card__bg--tools',
+  Funding: 'tiktok-card__bg--funding',
+  SaaS: 'tiktok-card__bg--saas',
+  Community: 'tiktok-card__bg--community',
+  'Open Source': 'tiktok-card__bg--opensource',
+};
+
+function timeAgo(iso) {
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
+}
+
+function ArticleCard({ article, index, isLast, onLastVisible }) {
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!isLast || !ref.current) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => { if (entry.isIntersecting) onLastVisible(); },
+      { threshold: 0.5 }
+    );
+    observer.observe(ref.current);
+    return () => observer.disconnect();
+  }, [isLast, onLastVisible]);
+
+  const bgClass = BG_MAP[article.category] || 'tiktok-card__bg--ai';
+
+  return (
+    <div className="tiktok-card" ref={ref}>
+      <div className={`tiktok-card__bg ${bgClass}`} />
+      <div className="tiktok-card__noise" />
+      <div className="tiktok-card__gradient" />
+      <div className="tiktok-card__number">{String(index + 1).padStart(2, '0')}</div>
+
+      <div className="tiktok-card__content">
+        <div className="tiktok-card__meta">
+          <span className="tiktok-card__cat">{article.category}</span>
+          <span className="tiktok-card__time">{timeAgo(article.fetched_at)}</span>
+          <span className="tiktok-card__read">{article.read_time_minutes} min read</span>
+        </div>
+
+        <h2 className="tiktok-card__headline">{article.headline}</h2>
+
+        {article.subheadline && (
+          <p className="tiktok-card__sub">{article.subheadline}</p>
+        )}
+
+        <div className="tiktok-card__actions">
+          <Link to={`/article/${article.id}`} className="tiktok-card__btn tiktok-card__btn--read">
+            Read story →
+          </Link>
+          <Link to="/digest" className="tiktok-card__btn tiktok-card__btn--digest">
+            ⚡ Digest
+          </Link>
+        </div>
+      </div>
+
+      {index === 0 && (
+        <div className="tiktok-card__scroll-hint">↓ scroll</div>
+      )}
+    </div>
+  );
+}
 
 export default function Feed() {
   const [searchParams] = useSearchParams();
@@ -14,138 +78,123 @@ export default function Feed() {
 
   const [articles, setArticles] = useState([]);
   const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
-  const [total, setTotal] = useState(0);
+  const [hasMore, setHasMore] = useState(true);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState('');
   const [pipelineMsg, setPipelineMsg] = useState('');
 
   useEffect(() => {
-    setPage(1);
-  }, [category]);
+    const nav = document.querySelector('.navbar');
+    if (nav) nav.classList.add('navbar--dark');
+    return () => { if (nav) nav.classList.remove('navbar--dark'); };
+  }, []);
 
   useEffect(() => {
+    setArticles([]);
+    setPage(1);
+    setHasMore(true);
     setLoading(true);
     setError('');
-    api.getArticles(page, category)
+
+    api.getArticles(1, category)
       .then((data) => {
         setArticles(data.articles || []);
-        setTotalPages(data.total_pages || 1);
-        setTotal(data.total || 0);
+        setHasMore((data.page || 1) < (data.total_pages || 1));
       })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
-  }, [page, category]);
+  }, [category]);
+
+  const loadMore = useCallback(() => {
+    if (loadingMore || !hasMore) return;
+    const nextPage = page + 1;
+    setLoadingMore(true);
+
+    api.getArticles(nextPage, category)
+      .then((data) => {
+        setArticles((prev) => [...prev, ...(data.articles || [])]);
+        setPage(nextPage);
+        setHasMore(nextPage < (data.total_pages || 1));
+      })
+      .catch(() => {})
+      .finally(() => setLoadingMore(false));
+  }, [loadingMore, hasMore, page, category]);
 
   async function handleRefresh() {
-    setPipelineMsg('Generating new articles… check back in ~60 seconds.');
+    setPipelineMsg('Generating new articles…');
     try {
       await api.triggerPipeline();
-    } catch (err) {
-      setPipelineMsg(`Error: ${err.message}`);
+      setTimeout(() => setPipelineMsg(''), 6000);
+    } catch {
+      setPipelineMsg('');
     }
-    setTimeout(() => setPipelineMsg(''), 8000);
+  }
+
+  if (loading) {
+    return (
+      <div style={{
+        height: 'calc(100vh - 56px)',
+        background: '#0a0a0a',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}>
+        <div className="spinner" style={{ borderColor: '#333', borderTopColor: '#fff' }} />
+      </div>
+    );
+  }
+
+  if (!loading && articles.length === 0) {
+    return (
+      <div style={{
+        height: 'calc(100vh - 56px)',
+        background: '#0a0a0a',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 16,
+      }}>
+        <p style={{ fontFamily: 'var(--font-display)', fontSize: '1.3rem', color: 'rgba(255,255,255,0.5)' }}>
+          No stories yet
+        </p>
+        <p style={{ fontFamily: 'var(--font-ui)', fontSize: '0.78rem', color: 'rgba(255,255,255,0.25)' }}>
+          The pipeline runs every 6 hours
+        </p>
+        <button className="tiktok-card__btn tiktok-card__btn--read" onClick={handleRefresh}>
+          Generate now
+        </button>
+        {pipelineMsg && (
+          <p style={{ fontFamily: 'var(--font-ui)', fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)', marginTop: 8 }}>
+            {pipelineMsg}
+          </p>
+        )}
+      </div>
+    );
   }
 
   return (
-    <div className="feed-layout">
-      {/* Main column */}
-      <main>
-        <div className="feed-header">
-          <h1>{category ? `${category} News` : 'Latest Stories'}</h1>
-          <p className="feed-header__date">{today} · {total} articles</p>
+    <div className="tiktok-feed">
+      {articles.map((article, i) => (
+        <ArticleCard
+          key={article.id}
+          article={article}
+          index={i}
+          isLast={i === articles.length - 1}
+          onLastVisible={loadMore}
+        />
+      ))}
+
+      {loadingMore && (
+        <div className="tiktok-feed__loader">
+          <div className="spinner" style={{ borderColor: '#222', borderTopColor: '#555' }} />
         </div>
+      )}
 
-        {pipelineMsg && (
-          <div style={{
-            fontFamily: 'var(--font-ui)',
-            fontSize: '0.78rem',
-            color: 'var(--success)',
-            background: '#f0faf4',
-            border: '1px solid #b6e8cc',
-            borderRadius: 'var(--radius)',
-            padding: '10px 14px',
-            marginBottom: 20,
-          }}>
-            {pipelineMsg}
-          </div>
-        )}
-
-        {loading && (
-          <div className="state-box">
-            <div className="spinner" />
-            <p>Loading stories…</p>
-          </div>
-        )}
-
-        {!loading && error && (
-          <div className="state-box">
-            <h3>Couldn't load articles</h3>
-            <p>{error}</p>
-          </div>
-        )}
-
-        {!loading && !error && articles.length === 0 && (
-          <div className="state-box">
-            <h3>No articles yet</h3>
-            <p>The pipeline runs every 6 hours.</p>
-            <button
-              className="btn btn--primary btn--sm"
-              style={{ margin: '16px auto 0', display: 'flex' }}
-              onClick={handleRefresh}
-            >
-              Generate now
-            </button>
-          </div>
-        )}
-
-        {!loading && articles.map((article, i) => (
-          <ArticleCard key={article.id} article={article} index={(page - 1) * 10 + i} />
-        ))}
-
-        {!loading && totalPages > 1 && (
-          <div className="pagination">
-            <button
-              className="btn btn--ghost btn--sm"
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              disabled={page === 1}
-              style={{ opacity: page === 1 ? 0.4 : 1 }}
-            >
-              ← Prev
-            </button>
-            <button
-              className="btn btn--ghost btn--sm"
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              disabled={page === totalPages}
-              style={{ opacity: page === totalPages ? 0.4 : 1 }}
-            >
-              Next →
-            </button>
-            <span className="pagination__info">Page {page} of {totalPages}</span>
-          </div>
-        )}
-      </main>
-
-      {/* Sidebar */}
-      <aside className="feed-sidebar">
-        <DigestPanel />
-
-        <div className="sidebar-widget">
-          <div className="sidebar-widget__header">About The Commit</div>
-          <div className="sidebar-widget__body">
-            <p style={{ fontFamily: 'var(--font-ui)', fontSize: '0.78rem', color: 'var(--ink-muted)', lineHeight: 1.6, marginBottom: 12 }}>
-              Builder news reported by AI. Topics sourced from real-time social signals via Virlo, stories from Hacker News, articles written by Llama 3.3 70B, digests by Gemini 2.5.
-            </p>
-            <button
-              className="btn btn--ghost btn--sm"
-              style={{ width: '100%', justifyContent: 'center' }}
-              onClick={handleRefresh}
-            >
-              ↻ Refresh pipeline
-            </button>
-          </div>
-        </div>
-      </aside>
+      {!hasMore && articles.length > 0 && (
+        <div className="tiktok-feed__end">You're all caught up</div>
+      )}
     </div>
   );
-}
+                                                 }
